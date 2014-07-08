@@ -140,9 +140,13 @@ moveShot time s = s { shotPosition = shotPosition s `addVector` shotDelta s }
 
 updatePlayer :: Float -> Player -> Player
 updatePlayer time
-    = movePlayer time -- move player
+    = stopShoot -- stop shooting (this may later take a "machine gun" flag)
+    . movePlayer time -- move player
     . boostPlayer time -- apply boost
     . rotatePlayer time -- apply rotation
+
+stopShoot :: Player -> Player
+stopShoot p = p { playerShoot = False }
 
 movePlayer :: Float -> Player -> Player
 movePlayer time p = p { playerPosition = playerPosition p `addVector` playerDelta p }
