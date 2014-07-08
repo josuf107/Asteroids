@@ -46,7 +46,7 @@ type EventBinding a = [((Key, KeyState), a -> a)]
 main :: IO ()
 main = play
     (InWindow "Asteroids" (500, 500) (500, 500))
-    white
+    black
     40
     initialGame
     drawGame
@@ -75,6 +75,7 @@ drawPlayer p =
         . ifxy (playerBoost p)
             (\x -> pictures [x, color red . line $ [(0, 7), (0, negate 7)]])
             id
+        . color white
         . line
         $ [(0, 7), (0, negate 7), (14, 0), (0, 7)]
 
