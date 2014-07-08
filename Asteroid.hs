@@ -1,13 +1,15 @@
 module Asteroid where
 
+import Control.Monad.State
 import Data.Monoid
+import System.Random
 
 import Graphics.Gloss
 import Graphics.Gloss.Interface.Pure.Game
 import Graphics.Gloss.Data.Vector
 import Graphics.Gloss.Geometry.Angle
 
-data Turning = TurningLeft | TurningRight deriving Eq
+data Turning = TurningLeft | TurningRight deriving (Show, Eq)
 
 data Player = Player
     { playerEntity :: Entity
@@ -15,22 +17,27 @@ data Player = Player
     , playerTurning :: Maybe Turning
     , playerBoost :: Bool
     , playerShoot :: Bool
-    }
+    } deriving (Show)
 
 data Shot = Shot
     { shotEntity :: Entity
-    }
+    } deriving (Show)
+
+data Asteroid = Asteroid
+    { asteroidEntity :: Entity
+    } deriving (Show)
 
 data Entity = Entity
     { entityPosition :: Point
     , entityDelta :: Vector
-    }
+    } deriving (Show)
 
 data Game = Game
     { gamePlayer :: Player
     , gameShots :: [Shot]
+    , gameAsteroids :: [Asteroid]
     , gameOver :: Bool
-    }
+    } deriving (Show)
 
 class Keyable a where
     toKey :: a -> Key
@@ -48,18 +55,43 @@ main = play
     (InWindow "Asteroids" (500, 500) (500, 500))
     black
     40
-    initialGame
+    (initialGame (mkStdGen 4))
     drawGame
     handleEvent
     updateGame
 
-initialGame :: Game
-initialGame = Game (Player (Entity (0,0) (0,0)) (pi / 2) Nothing False False) [] False
+initialGame :: RandomGen g => g -> Game
+initialGame g = Game
+    (Player (Entity (0,0) (0,0)) (pi / 2) Nothing False False)
+    []
+    (take 5 . newAsteroids $ g)
+    False
+
+newAsteroids :: RandomGen g => g -> [Asteroid]
+newAsteroids = (\(g, g') -> newAsteroid g : newAsteroids g') . split
+
+newAsteroid :: RandomGen g => g -> Asteroid
+newAsteroid g = flip evalState g $ do
+    px <- nextRandom (-500, 500)
+    py <- nextRandom (-500, 500)
+    speed <- nextRandom (50, 100)
+    angle <- nextRandom (0, 2 * pi)
+    return . Asteroid . accelerate speed angle 10000 $ Entity (px, py) (0,0)
+
+nextRandom :: (RandomGen g, Random a) => (a, a) -> State g a
+nextRandom range = state $ randomR range
 
 drawGame :: Game -> Picture
 drawGame g = pictures $
     drawPlayer (gamePlayer g)
     : fmap drawShot (gameShots g)
+    ++ fmap drawAsteroid (gameAsteroids g)
+
+drawAsteroid :: Asteroid -> Picture
+drawAsteroid a = color white
+    . uncurry translate (entityPosition . asteroidEntity $ a)
+    . circleSolid
+    $ 10
 
 drawShot :: Shot -> Picture
 drawShot s = color blue
@@ -126,7 +158,14 @@ updateGame :: Float -> Game -> Game
 updateGame time g = g
     { gamePlayer = updatePlayer time (gamePlayer g)
     , gameShots = updateShots time (gamePlayer g) (gameShots g)
+    , gameAsteroids = updateAsteroids time (gameAsteroids g)
     }
+
+updateAsteroids :: Float -> [Asteroid] -> [Asteroid]
+updateAsteroids time = fmap (moveAsteroid time)
+
+moveAsteroid :: Float -> Asteroid -> Asteroid
+moveAsteroid time a = a { asteroidEntity = move time (asteroidEntity a) }
 
 updateShots :: Float -> Player -> [Shot] -> [Shot]
 updateShots time player shots
