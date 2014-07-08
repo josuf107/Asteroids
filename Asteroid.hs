@@ -10,8 +10,7 @@ import Graphics.Gloss.Geometry.Angle
 data Turning = TurningLeft | TurningRight deriving Eq
 
 data Player = Player
-    { playerPosition :: Point
-    , playerDelta :: Vector
+    { playerEntity :: Entity
     , playerRotation :: Float
     , playerTurning :: Maybe Turning
     , playerBoost :: Bool
@@ -19,8 +18,12 @@ data Player = Player
     }
 
 data Shot = Shot
-    { shotPosition :: Point
-    , shotDelta :: Vector
+    { shotEntity :: Entity
+    }
+
+data Entity = Entity
+    { entityPosition :: Point
+    , entityDelta :: Vector
     }
 
 data Game = Game
@@ -44,14 +47,14 @@ main :: IO ()
 main = play
     (InWindow "Asteroids" (500, 500) (500, 500))
     white
-    30
+    40
     initialGame
     drawGame
     handleEvent
     updateGame
 
 initialGame :: Game
-initialGame = Game (Player (0,0) (0,0) (pi / 2) Nothing False False) [] False
+initialGame = Game (Player (Entity (0,0) (0,0)) (pi / 2) Nothing False False) [] False
 
 drawGame :: Game -> Picture
 drawGame g = pictures $
@@ -60,13 +63,13 @@ drawGame g = pictures $
 
 drawShot :: Shot -> Picture
 drawShot s = color blue
-    . uncurry translate (shotPosition s)
+    . uncurry translate (entityPosition . shotEntity $ s)
     . circleSolid
     $ 2
 
 drawPlayer :: Player -> Picture
 drawPlayer p =
-    let (px, py) = playerPosition p
+    let (px, py) = entityPosition . playerEntity $ p
     in translate px py
         . rotate (radToDeg . normaliseAngle . negate . playerRotation $ p)
         . ifxy (playerBoost p)
@@ -129,14 +132,10 @@ updateShots time player shots
     = fmap (moveShot time) $ ifxy (playerShoot player) (newShot player:shots) shots
 
 newShot :: Player -> Shot
-newShot p = Shot (playerPosition p)
-    (playerDelta p `addVector` (mulSV 10
-        . unitVectorAtAngle
-        . normaliseAngle
-        $ playerRotation p))
+newShot p = Shot $ accelerate 400 (playerRotation p) 400 (playerEntity p)
 
 moveShot :: Float -> Shot -> Shot
-moveShot time s = s { shotPosition = shotPosition s `addVector` shotDelta s }
+moveShot time s = s { shotEntity = move time (shotEntity s) }
 
 updatePlayer :: Float -> Player -> Player
 updatePlayer time
@@ -149,21 +148,32 @@ stopShoot :: Player -> Player
 stopShoot p = p { playerShoot = False }
 
 movePlayer :: Float -> Player -> Player
-movePlayer time p = p { playerPosition = playerPosition p `addVector` playerDelta p }
+movePlayer time p = p { playerEntity = move time (playerEntity p) }
+
+move :: Float -> Entity -> Entity
+move time e = e { entityPosition =
+    entityPosition e `addVector` (mulSV time . entityDelta $ e) }
 
 boostPlayer :: Float -> Player -> Player
 boostPlayer time p =
-    if playerBoost p
-    then
-        p { playerDelta = capVector 10
-            (playerDelta p `addVector` (mulSV (time * boost)
-            . unitVectorAtAngle
-            . normaliseAngle
-            $ playerRotation p)) }
-    else p
+    ifxy (playerBoost p)
+        (p { playerEntity = accelerate
+            (time * boost)
+            (playerRotation p)
+            300
+            (playerEntity p) })
+        p
 
 boost :: Float
-boost = 20
+boost = 200
+
+accelerate :: Float -> Float -> Float -> Entity -> Entity
+accelerate magnitude radians maxmag e =
+    e { entityDelta = capVector maxmag
+        (entityDelta e `addVector` (mulSV magnitude
+        . unitVectorAtAngle
+        . normaliseAngle
+        $ radians)) }
 
 capVector :: Float -> Vector -> Vector
 capVector maxmag v =
