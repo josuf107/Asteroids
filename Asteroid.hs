@@ -191,8 +191,14 @@ movePlayer :: Float -> Player -> Player
 movePlayer time p = p { playerEntity = move time (playerEntity p) }
 
 move :: Float -> Entity -> Entity
-move time e = e { entityPosition =
+move time e = e { entityPosition = wrapPosition $
     entityPosition e `addVector` (mulSV time . entityDelta $ e) }
+
+wrapPosition :: Point -> Point
+wrapPosition (px, py) =
+    ( ifxy (px > 500) (-500) (ifxy (px < -500) 500 px)
+    , ifxy (py > 500) (-500) (ifxy (py < -500) 500 py)
+    )
 
 boostPlayer :: Float -> Player -> Player
 boostPlayer time p =
