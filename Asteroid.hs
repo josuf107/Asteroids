@@ -21,6 +21,7 @@ data Player = Player
 
 data Shot = Shot
     { shotEntity :: Entity
+    , shotLife :: Seconds
     } deriving (Show)
 
 data Asteroid = Asteroid
@@ -49,6 +50,8 @@ instance Keyable Char where
     toKey = Char
 
 type EventBinding a = [((Key, KeyState), a -> a)]
+
+type Seconds = Float
 
 main :: IO ()
 main = play
@@ -115,6 +118,10 @@ ifxy :: Bool -> a -> a -> a
 ifxy True a _ = a
 ifxy _ _ b = b
 
+ifapp :: Bool -> (a -> a) -> a -> a
+ifapp True f = f
+ifapp False _ = id
+
 handleEvent :: Event -> Game -> Game
 handleEvent = createHandler
     $ handlePlayer
@@ -154,30 +161,34 @@ createHandler _ _ = id
 modifyPlayer :: (Player -> Player) -> Game -> Game
 modifyPlayer f g = g { gamePlayer = f (gamePlayer g) }
 
-updateGame :: Float -> Game -> Game
+updateGame :: Seconds -> Game -> Game
 updateGame time g = g
     { gamePlayer = updatePlayer time (gamePlayer g)
     , gameShots = updateShots time (gamePlayer g) (gameShots g)
     , gameAsteroids = updateAsteroids time (gameAsteroids g)
     }
 
-updateAsteroids :: Float -> [Asteroid] -> [Asteroid]
+updateAsteroids :: Seconds -> [Asteroid] -> [Asteroid]
 updateAsteroids time = fmap (moveAsteroid time)
 
-moveAsteroid :: Float -> Asteroid -> Asteroid
+moveAsteroid :: Seconds -> Asteroid -> Asteroid
 moveAsteroid time a = a { asteroidEntity = move time (asteroidEntity a) }
 
-updateShots :: Float -> Player -> [Shot] -> [Shot]
+updateShots :: Seconds -> Player -> [Shot] -> [Shot]
 updateShots time player shots
-    = fmap (moveShot time) $ ifxy (playerShoot player) (newShot player:shots) shots
+    = fmap (moveShot time)
+    . filter ((< 1) . shotLife)
+    . fmap (\s -> s { shotLife = shotLife s + time} )
+    . ifapp (playerShoot player) (newShot player:)
+    $ shots
 
 newShot :: Player -> Shot
-newShot p = Shot $ accelerate 400 (playerRotation p) 400 (playerEntity p)
+newShot p = Shot (accelerate 400 (playerRotation p) 400 (playerEntity p)) 0
 
-moveShot :: Float -> Shot -> Shot
+moveShot :: Seconds -> Shot -> Shot
 moveShot time s = s { shotEntity = move time (shotEntity s) }
 
-updatePlayer :: Float -> Player -> Player
+updatePlayer :: Seconds -> Player -> Player
 updatePlayer time
     = stopShoot -- stop shooting (this may later take a "machine gun" flag)
     . movePlayer time -- move player
@@ -187,10 +198,10 @@ updatePlayer time
 stopShoot :: Player -> Player
 stopShoot p = p { playerShoot = False }
 
-movePlayer :: Float -> Player -> Player
+movePlayer :: Seconds -> Player -> Player
 movePlayer time p = p { playerEntity = move time (playerEntity p) }
 
-move :: Float -> Entity -> Entity
+move :: Seconds -> Entity -> Entity
 move time e = e { entityPosition = wrapPosition $
     entityPosition e `addVector` (mulSV time . entityDelta $ e) }
 
@@ -200,7 +211,7 @@ wrapPosition (px, py) =
     , ifxy (py > 500) (-500) (ifxy (py < -500) 500 py)
     )
 
-boostPlayer :: Float -> Player -> Player
+boostPlayer :: Seconds -> Player -> Player
 boostPlayer time p =
     ifxy (playerBoost p)
         (p { playerEntity = accelerate
@@ -230,7 +241,7 @@ capVector maxmag v =
 addVector :: Vector -> Vector -> Vector
 addVector (x1, y1) (x2, y2) = (x1 + x2, y1 + y2)
 
-rotatePlayer :: Float -> Player -> Player
+rotatePlayer :: Seconds -> Player -> Player
 rotatePlayer time p =
     case playerTurning p of
         Just TurningRight -> p { playerRotation = playerRotation p - (pi * time) }
