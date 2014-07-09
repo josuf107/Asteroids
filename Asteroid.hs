@@ -82,7 +82,7 @@ newAsteroid g = flip evalState g $ do
     py <- nextRandom (-500, 500)
     speed <- nextRandom (50, 100)
     angle <- nextRandom (0, 2 * pi)
-    return $ Asteroid (accelerate speed angle 10000 $ Entity (px, py) (0,0)) 10
+    return $ Asteroid (accelerate speed angle 10000 $ Entity (px, py) (0,0)) 12
 
 nextRandom :: (RandomGen g, Random a) => (a, a) -> State g a
 nextRandom range = state $ randomR range
@@ -176,11 +176,39 @@ updateGame time g = ifxy (gameOver g)
 
 checkCollisions :: Game -> Game
 checkCollisions g =
-    let shotAsteroids = getShotAsteroids g
+    let
+        shotAsteroids = getShotAsteroids g
+        (newAsteroids, newGen) = flip runState (gameGen g)
+            . mapM (\a -> ifxy (a `elem` fmap snd shotAsteroids)
+                (smash a)
+                (return [a]))
+            . gameAsteroids
+            $ g
     in g
         { gameShots = filter (`notElem` (fmap fst shotAsteroids)) . gameShots $ g
-        , gameAsteroids = filter (`notElem` (fmap snd shotAsteroids)) . gameAsteroids $ g
+        , gameAsteroids = concat newAsteroids
+        , gameGen = newGen
         }
+
+smash :: RandomGen g => Asteroid -> State g [Asteroid]
+smash a =
+    case asteroidSize a of
+        12 -> mapM randomAccelerate . replicate 3 . setSize 8 $ a
+        8 -> mapM randomAccelerate . replicate 3 . setSize 4 $ a
+        4 -> return [] -- completely destroyed
+        x -> error ("Weirdly sized asteroid: " ++ show x)
+
+setSize :: Int -> Asteroid -> Asteroid
+setSize s a = a
+    { asteroidSize = s
+    , asteroidEntity = (asteroidEntity a) { entityDelta = (0, 0) }
+    }
+
+randomAccelerate :: RandomGen g => Asteroid -> State g Asteroid
+randomAccelerate a = do
+    speed <- nextRandom (50, 100)
+    angle <- nextRandom (0, 2 * pi)
+    return $ Asteroid (accelerate speed angle 10000 (asteroidEntity a)) (asteroidSize a)
 
 getShotAsteroids :: Game -> [(Shot, Asteroid)]
 getShotAsteroids g = do
