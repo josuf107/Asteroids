@@ -17,6 +17,7 @@ data Player = Player
     , playerTurning :: Maybe Turning
     , playerBoost :: Bool
     , playerShoot :: Bool
+    , playerLives :: Int
     } deriving (Show)
 
 data Shot = Shot
@@ -67,7 +68,7 @@ main = play
 
 initialGame :: StdGen -> Game
 initialGame g = Game
-    (Player (Entity (0,0) (0,0)) (pi / 2) Nothing False False)
+    (Player (Entity (0,0) (0,0)) (pi / 2) Nothing False False 3)
     []
     (take 5 . newAsteroids $ g)
     False
@@ -178,8 +179,10 @@ checkCollisions :: Game -> Game
 checkCollisions g =
     let
         shotAsteroids = getShotAsteroids g
+        crashedAsteroids = getCrashedAsteroids (gamePlayer g) (gameAsteroids g)
+        asteroidsToSmash = fmap snd shotAsteroids ++ crashedAsteroids
         (newAsteroids, newGen) = flip runState (gameGen g)
-            . mapM (\a -> ifxy (a `elem` fmap snd shotAsteroids)
+            . mapM (\a -> ifxy (a `elem` asteroidsToSmash)
                 (smash a)
                 (return [a]))
             . gameAsteroids
@@ -188,7 +191,52 @@ checkCollisions g =
         { gameShots = filter (`notElem` (fmap fst shotAsteroids)) . gameShots $ g
         , gameAsteroids = concat newAsteroids
         , gameGen = newGen
+        , gamePlayer = ifapp (not . null $ crashedAsteroids) kill . gamePlayer $ g
         }
+
+kill :: Player -> Player
+kill p = p
+    { playerEntity = Entity (0, 0) (0, 0)
+    , playerRotation = pi / 2
+    , playerTurning = Nothing
+    , playerBoost = False
+    , playerShoot = False
+    , playerLives = playerLives p - 1
+    }
+
+getCrashedAsteroids :: Player -> [Asteroid] -> [Asteroid]
+getCrashedAsteroids p as =
+    let
+        (p1, p2, p3) = playerPoints p
+        tooClose ap as = minimum
+            [distFromLine p1 p2 ap, distFromLine p1 p3 ap, distFromLine p2 p3 ap]
+            < (fromIntegral as)
+    in
+        filter (\a -> tooClose (entityPosition . asteroidEntity $ a) (asteroidSize a)) as
+
+playerPoints :: Player -> (Point, Point, Point)
+playerPoints p =
+    let
+        pnt = entityPosition . playerEntity $ p
+        theta = playerRotation p
+    in
+        ( pnt `addVector` rotateV theta (0, 7)
+        , pnt `addVector` rotateV theta (0, negate 7)
+        , pnt `addVector` rotateV theta (14, 0)
+        )
+
+distFromLine :: Point -> Point -> Point -> Float
+distFromLine a b c =
+    let
+        ab = dist a b
+        ac = dist a c
+        bc = dist b c
+        s = (ab + ac + bc) / 2 -- semiperimiter
+    in
+        ifxy (ab < ac || ab < bc) (min ac bc)
+            ((2*sqrt(s*(s-ab)*(s-ac)*(s-bc)))/ab)
+            -- such math
+            -- https://en.wikipedia.org/wiki/Altitude_(triangle)#Altitude_in_terms_of_the_sides
 
 smash :: RandomGen g => Asteroid -> State g [Asteroid]
 smash a =
