@@ -38,6 +38,7 @@ data Game = Game
     , gameShots :: [Shot]
     , gameAsteroids :: [Asteroid]
     , gameOver :: Bool
+    , gameGen :: StdGen
     } deriving (Show)
 
 class Keyable a where
@@ -63,12 +64,13 @@ main = play
     handleEvent
     updateGame
 
-initialGame :: RandomGen g => g -> Game
+initialGame :: StdGen -> Game
 initialGame g = Game
     (Player (Entity (0,0) (0,0)) (pi / 2) Nothing False False)
     []
     (take 5 . newAsteroids $ g)
     False
+    (iterate (snd . split) g !! 6) -- partial function smh
 
 newAsteroids :: RandomGen g => g -> [Asteroid]
 newAsteroids = (\(g, g') -> newAsteroid g : newAsteroids g') . split
@@ -161,11 +163,13 @@ modifyPlayer :: (Player -> Player) -> Game -> Game
 modifyPlayer f g = g { gamePlayer = f (gamePlayer g) }
 
 updateGame :: Seconds -> Game -> Game
-updateGame time g = g
-    { gamePlayer = updatePlayer time (gamePlayer g)
-    , gameShots = updateShots time (gamePlayer g) (gameShots g)
-    , gameAsteroids = updateAsteroids time (gameAsteroids g)
-    }
+updateGame time g = ifxy (gameOver g)
+    (initialGame (snd . split . gameGen $ g)) -- restart
+    (g
+        { gamePlayer = updatePlayer time (gamePlayer g)
+        , gameShots = updateShots time (gamePlayer g) (gameShots g)
+        , gameAsteroids = updateAsteroids time (gameAsteroids g)
+        })
 
 updateAsteroids :: Seconds -> [Asteroid] -> [Asteroid]
 updateAsteroids time = fmap (moveAsteroid time)
