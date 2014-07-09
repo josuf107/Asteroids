@@ -22,16 +22,17 @@ data Player = Player
 data Shot = Shot
     { shotEntity :: Entity
     , shotLife :: Seconds
-    } deriving (Show)
+    } deriving (Show, Eq)
 
 data Asteroid = Asteroid
     { asteroidEntity :: Entity
-    } deriving (Show)
+    , asteroidSize :: Int
+    } deriving (Show, Eq)
 
 data Entity = Entity
     { entityPosition :: Point
     , entityDelta :: Vector
-    } deriving (Show)
+    } deriving (Show, Eq)
 
 data Game = Game
     { gamePlayer :: Player
@@ -81,7 +82,7 @@ newAsteroid g = flip evalState g $ do
     py <- nextRandom (-500, 500)
     speed <- nextRandom (50, 100)
     angle <- nextRandom (0, 2 * pi)
-    return . Asteroid . accelerate speed angle 10000 $ Entity (px, py) (0,0)
+    return $ Asteroid (accelerate speed angle 10000 $ Entity (px, py) (0,0)) 10
 
 nextRandom :: (RandomGen g, Random a) => (a, a) -> State g a
 nextRandom range = state $ randomR range
@@ -96,7 +97,9 @@ drawAsteroid :: Asteroid -> Picture
 drawAsteroid a = color white
     . uncurry translate (entityPosition . asteroidEntity $ a)
     . circleSolid
-    $ 10
+    . fromIntegral
+    . asteroidSize
+    $ a
 
 drawShot :: Shot -> Picture
 drawShot s = color blue
@@ -165,11 +168,33 @@ modifyPlayer f g = g { gamePlayer = f (gamePlayer g) }
 updateGame :: Seconds -> Game -> Game
 updateGame time g = ifxy (gameOver g)
     (initialGame (snd . split . gameGen $ g)) -- restart
-    (g
+    (checkCollisions $ g
         { gamePlayer = updatePlayer time (gamePlayer g)
         , gameShots = updateShots time (gamePlayer g) (gameShots g)
         , gameAsteroids = updateAsteroids time (gameAsteroids g)
         })
+
+checkCollisions :: Game -> Game
+checkCollisions g =
+    let shotAsteroids = getShotAsteroids g
+    in g
+        { gameShots = filter (`notElem` (fmap fst shotAsteroids)) . gameShots $ g
+        , gameAsteroids = filter (`notElem` (fmap snd shotAsteroids)) . gameAsteroids $ g
+        }
+
+getShotAsteroids :: Game -> [(Shot, Asteroid)]
+getShotAsteroids g = do
+    shots <- gameShots g
+    asteroids <- gameAsteroids g
+    filter collided . return $ (shots, asteroids)
+    where
+        collided (shot, asteroid) =
+            (entityPosition . shotEntity $ shot)
+            `dist` (entityPosition . asteroidEntity $ asteroid)
+            < (fromIntegral (asteroidSize asteroid) + 2)
+
+dist :: Point -> Point -> Float
+dist (px1, py1) (px2, py2) = sqrt $ (px1 - px2) ^ 2 + (py1 - py2) ^ 2
 
 updateAsteroids :: Seconds -> [Asteroid] -> [Asteroid]
 updateAsteroids time = fmap (moveAsteroid time)
