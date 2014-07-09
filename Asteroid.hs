@@ -107,9 +107,8 @@ drawPlayer p =
     let (px, py) = entityPosition . playerEntity $ p
     in translate px py
         . rotate (radToDeg . normaliseAngle . negate . playerRotation $ p)
-        . ifxy (playerBoost p)
+        . ifapp (playerBoost p)
             (\x -> pictures [x, color red . line $ [(0, 7), (0, negate 7)]])
-            id
         . color white
         . line
         $ [(0, 7), (0, negate 7), (14, 0), (0, 7)]
@@ -175,12 +174,11 @@ moveAsteroid :: Seconds -> Asteroid -> Asteroid
 moveAsteroid time a = a { asteroidEntity = move time (asteroidEntity a) }
 
 updateShots :: Seconds -> Player -> [Shot] -> [Shot]
-updateShots time player shots
-    = fmap (moveShot time)
-    . filter ((< 1) . shotLife)
-    . fmap (\s -> s { shotLife = shotLife s + time} )
-    . ifapp (playerShoot player) (newShot player:)
-    $ shots
+updateShots time player
+    = fmap (moveShot time) -- move shots
+    . filter ((< 1) . shotLife) -- kill old shots
+    . fmap (\s -> s { shotLife = shotLife s + time} ) -- age shots
+    . ifapp (playerShoot player) (newShot player:) -- new shot if shooting
 
 newShot :: Player -> Shot
 newShot p = Shot (accelerate 400 (playerRotation p) 400 (playerEntity p)) 0
