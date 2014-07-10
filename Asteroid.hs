@@ -86,7 +86,7 @@ newAsteroid = do
     py <- nextRandom (-500, 500)
     speed <- nextRandom (50, 100)
     angle <- nextRandom (0, 2 * pi)
-    return $ Asteroid (accelerate speed angle 10000 $ Entity (px, py) (0,0)) 12
+    return $ Asteroid (accelerate speed angle 10000 $ Entity (px, py) (0,0)) 24
 
 nextRandom :: (RandomGen g, Random a) => (a, a) -> State g a
 nextRandom range = state $ randomR range
@@ -244,9 +244,9 @@ distFromLine a b c =
 smash :: RandomGen g => Asteroid -> State g [Asteroid]
 smash a =
     case asteroidSize a of
-        12 -> mapM randomAccelerate . replicate 3 . setSize 8 $ a
-        8 -> mapM randomAccelerate . replicate 3 . setSize 4 $ a
-        4 -> return [] -- completely destroyed
+        24 -> mapM randomAccelerate . replicate 3 . setSize 16 $ a
+        16 -> mapM randomAccelerate . replicate 3 . setSize 8 $ a
+        8 -> return [] -- completely destroyed
         x -> error ("Weirdly sized asteroid: " ++ show x)
 
 setSize :: Int -> Asteroid -> Asteroid
