@@ -242,10 +242,10 @@ distFromLine a b c =
             -- https://en.wikipedia.org/wiki/Altitude_(triangle)#Altitude_in_terms_of_the_sides
 
 smash :: RandomGen g => Asteroid -> State g [Asteroid]
-smash a =
+smash a = nextRandom (1, 3) >>= \pieces ->
     case asteroidSize a of
-        24 -> mapM randomAccelerate . replicate 3 . setSize 16 $ a
-        16 -> mapM randomAccelerate . replicate 3 . setSize 8 $ a
+        24 -> mapM randomAccelerate . replicate pieces . setSize 16 $ a
+        16 -> mapM randomAccelerate . replicate pieces . setSize 8 $ a
         8 -> return [] -- completely destroyed
         x -> error ("Weirdly sized asteroid: " ++ show x)
 
