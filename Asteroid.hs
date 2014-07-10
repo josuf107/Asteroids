@@ -67,18 +67,21 @@ main = play
     updateGame
 
 initialGame :: StdGen -> Game
-initialGame g = Game
-    (Player (Entity (0,0) (0,0)) (pi / 2) Nothing False False 3)
-    []
-    (take 5 . newAsteroids $ g)
-    False
-    (iterate (snd . split) g !! 6) -- partial function smh
+initialGame g =
+    let (as, g') = runState (newAsteroids 5) g
+    in
+        Game
+        (Player (Entity (0,0) (0,0)) (pi / 2) Nothing False False 3)
+        []
+        as
+        False
+        g'
 
-newAsteroids :: RandomGen g => g -> [Asteroid]
-newAsteroids = (\(g, g') -> newAsteroid g : newAsteroids g') . split
+newAsteroids :: RandomGen g => Int -> State g [Asteroid]
+newAsteroids n = sequence . replicate n $ newAsteroid
 
-newAsteroid :: RandomGen g => g -> Asteroid
-newAsteroid g = flip evalState g $ do
+newAsteroid :: RandomGen g => State g Asteroid
+newAsteroid = do
     px <- nextRandom (-500, 500)
     py <- nextRandom (-500, 500)
     speed <- nextRandom (50, 100)
@@ -168,7 +171,7 @@ modifyPlayer f g = g { gamePlayer = f (gamePlayer g) }
 
 updateGame :: Seconds -> Game -> Game
 updateGame time g = ifxy (gameOver g)
-    (initialGame (snd . split . gameGen $ g)) -- restart
+    (initialGame . gameGen $ g) -- restart
     (checkCollisions $ g
         { gamePlayer = updatePlayer time (gamePlayer g)
         , gameShots = updateShots time (gamePlayer g) (gameShots g)
