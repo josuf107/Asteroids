@@ -54,6 +54,40 @@ instance Keyable Char where
 
 type EventBinding a = [((Key, KeyState), a -> a)]
 
+class Draw a where
+    draw :: a -> Picture
+
+instance Draw Game where
+    draw g = pictures $
+        draw (gamePlayer g)
+        : fmap draw (gameShots g)
+        ++ fmap draw (gameAsteroids g)
+
+instance Draw Asteroid where
+    draw a = color white
+        . uncurry translate (entityPosition . asteroidEntity $ a)
+        . circleSolid
+        . fromIntegral
+        . asteroidSize
+        $ a
+
+instance Draw Shot where
+    draw s = color blue
+        . uncurry translate (entityPosition . shotEntity $ s)
+        . circleSolid
+        $ 2
+
+instance Draw Player where
+    draw p =
+        let (px, py) = entityPosition . playerEntity $ p
+        in translate px py
+            . rotate (radToDeg . normaliseAngle . negate . playerRotation $ p)
+            . ifapp (playerBoost p)
+                (\x -> pictures [x, color red . line $ [(0, 7), (0, negate 7)]])
+            . color white
+            . line
+            $ [(0, 7), (0, negate 7), (14, 0), (0, 7)]
+
 type Seconds = Float
 
 main :: IO ()
@@ -62,7 +96,7 @@ main = play
     black
     40
     (initialGame (mkStdGen 4))
-    drawGame
+    draw
     handleEvent
     updateGame
 
@@ -90,37 +124,6 @@ newAsteroid = do
 
 nextRandom :: (RandomGen g, Random a) => (a, a) -> State g a
 nextRandom range = state $ randomR range
-
-drawGame :: Game -> Picture
-drawGame g = pictures $
-    drawPlayer (gamePlayer g)
-    : fmap drawShot (gameShots g)
-    ++ fmap drawAsteroid (gameAsteroids g)
-
-drawAsteroid :: Asteroid -> Picture
-drawAsteroid a = color white
-    . uncurry translate (entityPosition . asteroidEntity $ a)
-    . circleSolid
-    . fromIntegral
-    . asteroidSize
-    $ a
-
-drawShot :: Shot -> Picture
-drawShot s = color blue
-    . uncurry translate (entityPosition . shotEntity $ s)
-    . circleSolid
-    $ 2
-
-drawPlayer :: Player -> Picture
-drawPlayer p =
-    let (px, py) = entityPosition . playerEntity $ p
-    in translate px py
-        . rotate (radToDeg . normaliseAngle . negate . playerRotation $ p)
-        . ifapp (playerBoost p)
-            (\x -> pictures [x, color red . line $ [(0, 7), (0, negate 7)]])
-        . color white
-        . line
-        $ [(0, 7), (0, negate 7), (14, 0), (0, 7)]
 
 ifxy :: Bool -> a -> a -> a
 ifxy True a _ = a
