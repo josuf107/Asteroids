@@ -1,9 +1,12 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Asteroid where
 
 import Control.Monad.State
 import Data.Monoid
 import System.Random
 
+import Control.Lens
 import Graphics.Gloss
 import Graphics.Gloss.Interface.Pure.Game
 import Graphics.Gloss.Data.Vector
@@ -12,36 +15,44 @@ import Graphics.Gloss.Geometry.Angle
 data Turning = TurningLeft | TurningRight deriving (Show, Eq)
 
 data Player = Player
-    { playerEntity :: Entity
-    , playerRotation :: Float
-    , playerTurning :: Maybe Turning
-    , playerBoost :: Bool
-    , playerShoot :: Bool
-    , playerLives :: Int
+    { _playerEntity :: Entity
+    , _playerRotation :: Float
+    , _playerTurning :: Maybe Turning
+    , _playerBoost :: Bool
+    , _playerShoot :: Bool
+    , _playerLives :: Int
     } deriving (Show)
 
 data Shot = Shot
-    { shotEntity :: Entity
-    , shotLife :: Seconds
+    { _shotEntity :: Entity
+    , _shotLife :: Seconds
     } deriving (Show, Eq)
 
 data Asteroid = Asteroid
-    { asteroidEntity :: Entity
-    , asteroidSize :: Int
+    { _asteroidEntity :: Entity
+    , _asteroidSize :: Int
     } deriving (Show, Eq)
 
 data Entity = Entity
-    { entityPosition :: Point
-    , entityDelta :: Vector
+    { _entityPosition :: Point
+    , _entityDelta :: Vector
     } deriving (Show, Eq)
 
 data Game = Game
-    { gamePlayer :: Player
-    , gameShots :: [Shot]
-    , gameAsteroids :: [Asteroid]
-    , gameOver :: Bool
-    , gameGen :: StdGen
+    { _gamePlayer :: Player
+    , _gameShots :: [Shot]
+    , _gameAsteroids :: [Asteroid]
+    , _gameOver :: Bool
+    , _gameGen :: StdGen
     } deriving (Show)
+
+type Seconds = Float
+
+(makeLenses ''Player)
+(makeLenses ''Shot)
+(makeLenses ''Asteroid)
+(makeLenses ''Entity)
+(makeLenses ''Game)
 
 class Keyable a where
     toKey :: a -> Key
@@ -59,36 +70,33 @@ class Draw a where
 
 instance Draw Game where
     draw g = pictures $
-        draw (gamePlayer g)
-        : fmap draw (gameShots g)
-        ++ fmap draw (gameAsteroids g)
+        draw (g^.gamePlayer)
+        : fmap draw (g^.gameShots)
+        ++ fmap draw (g^.gameAsteroids)
 
 instance Draw Asteroid where
     draw a = color white
-        . uncurry translate (entityPosition . asteroidEntity $ a)
+        . uncurry translate (a^.asteroidEntity.entityPosition)
         . circleSolid
         . fromIntegral
-        . asteroidSize
-        $ a
+        $ a^.asteroidSize
 
 instance Draw Shot where
     draw s = color blue
-        . uncurry translate (entityPosition . shotEntity $ s)
+        . uncurry translate (s^.shotEntity.entityPosition)
         . circleSolid
         $ 2
 
 instance Draw Player where
     draw p =
-        let (px, py) = entityPosition . playerEntity $ p
+        let (px, py) = p^.playerEntity.entityPosition
         in translate px py
-            . rotate (radToDeg . normaliseAngle . negate . playerRotation $ p)
-            . ifapp (playerBoost p)
+            . rotate (radToDeg . normaliseAngle . negate $ p^.playerRotation)
+            . ifapp (p^.playerBoost)
                 (\x -> pictures [x, color red . line $ [(0, 7), (0, negate 7)]])
             . color white
             . line
             $ [(0, 7), (0, negate 7), (14, 0), (0, 7)]
-
-type Seconds = Float
 
 main :: IO ()
 main = play
@@ -136,28 +144,22 @@ ifapp False _ = id
 handleEvent :: Event -> Game -> Game
 handleEvent = createHandler
     $ handlePlayer
-        (key KeyLeft Down
-            (\p -> p { playerTurning = Just TurningLeft})
+        (key KeyLeft Down (playerTurning .~ Just TurningLeft)
         <> key KeyLeft Up
-            (\p -> ifxy (playerTurning p == Just TurningLeft)
-                (p { playerTurning = Nothing }) p)
-        <> key KeyRight Down
-            (\p -> p { playerTurning = Just TurningRight })
+            (\p -> ifapp (p^.playerTurning == Just TurningLeft)
+                (playerTurning .~ Nothing) p)
+        <> key KeyRight Down (playerTurning .~ Just TurningRight)
         <> key KeyRight Up
-            (\p -> ifxy (playerTurning p == Just TurningRight)
-                (p { playerTurning = Nothing }) p)
-        <> key KeySpace Down
-            (\p -> p { playerShoot = True })
-        <> key KeySpace Up
-            (\p -> p { playerShoot = False })
-        <> key KeyUp Down
-            (\p -> p { playerBoost = True } )
-        <> key KeyUp Up
-            (\p -> p { playerBoost = False} ))
-    <> key 'q' Down (\g -> g { gameOver = True })
+            (\p -> ifapp (p^.playerTurning == Just TurningRight)
+                (playerTurning .~ Nothing) p)
+        <> key KeySpace Down (playerShoot .~ True)
+        <> key KeySpace Up (playerShoot .~ False)
+        <> key KeyUp Down (playerBoost .~ True)
+        <> key KeyUp Up (playerBoost .~ False))
+    <> key 'q' Down (gameOver .~ True)
 
 handlePlayer :: EventBinding Player -> EventBinding Game
-handlePlayer = fmap (\(k, fg) -> (k, modifyPlayer fg))
+handlePlayer = fmap (\(k, fg) -> (k, gamePlayer %~ fg))
 
 key :: Keyable k => k -> KeyState -> (a -> a) -> EventBinding a
 key k s f = [((toKey k, s), f)]
@@ -169,46 +171,41 @@ createHandler bs (EventKey k s _ _) =
         Just f -> f
 createHandler _ _ = id
 
-modifyPlayer :: (Player -> Player) -> Game -> Game
-modifyPlayer f g = g { gamePlayer = f (gamePlayer g) }
-
 updateGame :: Seconds -> Game -> Game
-updateGame time g = ifxy (gameOver g)
-    (initialGame . gameGen $ g) -- restart
-    (checkCollisions $ g
-        { gamePlayer = updatePlayer time (gamePlayer g)
-        , gameShots = updateShots time (gamePlayer g) (gameShots g)
-        , gameAsteroids = updateAsteroids time (gameAsteroids g)
-        })
+updateGame time g = ifxy (g^.gameOver)
+    (initialGame $ g^.gameGen) -- restart
+    (g
+        & checkCollisions
+        . (gamePlayer %~ updatePlayer time)
+        . (gameShots %~ updateShots time (g^.gamePlayer))
+        . (gameAsteroids %~ updateAsteroids time))
 
 checkCollisions :: Game -> Game
 checkCollisions g =
     let
         shotAsteroids = getShotAsteroids g
-        crashedAsteroids = getCrashedAsteroids (gamePlayer g) (gameAsteroids g)
+        crashedAsteroids = getCrashedAsteroids (g^.gamePlayer) (g^.gameAsteroids)
         asteroidsToSmash = fmap snd shotAsteroids ++ crashedAsteroids
-        (newAsteroids, newGen) = flip runState (gameGen g)
+        (newAsteroids, newGen) = flip runState (g^.gameGen)
             . mapM (\a -> ifxy (a `elem` asteroidsToSmash)
                 (smash a)
                 (return [a]))
-            . gameAsteroids
+            . (^.gameAsteroids)
             $ g
     in g
-        { gameShots = filter (`notElem` (fmap fst shotAsteroids)) . gameShots $ g
-        , gameAsteroids = concat newAsteroids
-        , gameGen = newGen
-        , gamePlayer = ifapp (not . null $ crashedAsteroids) kill . gamePlayer $ g
-        }
+        & (gameShots %~ filter (`notElem` (fmap fst shotAsteroids)))
+        . (gameAsteroids .~ concat newAsteroids)
+        . (gameGen .~ newGen)
+        . (gamePlayer %~ ifapp (not . null $ crashedAsteroids) kill)
 
 kill :: Player -> Player
 kill p = p
-    { playerEntity = Entity (0, 0) (0, 0)
-    , playerRotation = pi / 2
-    , playerTurning = Nothing
-    , playerBoost = False
-    , playerShoot = False
-    , playerLives = playerLives p - 1
-    }
+    & (playerEntity .~ (Entity (0, 0) (0, 0)))
+    . (playerRotation .~ pi /2)
+    . (playerTurning .~ Nothing)
+    . (playerBoost .~ False)
+    . (playerShoot .~ False)
+    . (playerLives -~ 1)
 
 getCrashedAsteroids :: Player -> [Asteroid] -> [Asteroid]
 getCrashedAsteroids p as =
@@ -218,13 +215,13 @@ getCrashedAsteroids p as =
             [distFromLine p1 p2 ap, distFromLine p1 p3 ap, distFromLine p2 p3 ap]
             < (fromIntegral as)
     in
-        filter (\a -> tooClose (entityPosition . asteroidEntity $ a) (asteroidSize a)) as
+        filter (\a -> tooClose (a^.asteroidEntity.entityPosition) (a^.asteroidSize)) as
 
 playerPoints :: Player -> (Point, Point, Point)
 playerPoints p =
     let
-        pnt = entityPosition . playerEntity $ p
-        theta = playerRotation p
+        pnt = p^.playerEntity.entityPosition
+        theta = p^.playerRotation
     in
         ( pnt `addVector` rotateV theta (0, 7)
         , pnt `addVector` rotateV theta (0, negate 7)
@@ -246,34 +243,31 @@ distFromLine a b c =
 
 smash :: RandomGen g => Asteroid -> State g [Asteroid]
 smash a = nextRandom (1, 3) >>= \pieces ->
-    case asteroidSize a of
+    case a^.asteroidSize of
         24 -> mapM randomAccelerate . replicate pieces . setSize 16 $ a
         16 -> mapM randomAccelerate . replicate pieces . setSize 8 $ a
         8 -> return [] -- completely destroyed
         x -> error ("Weirdly sized asteroid: " ++ show x)
 
 setSize :: Int -> Asteroid -> Asteroid
-setSize s a = a
-    { asteroidSize = s
-    , asteroidEntity = (asteroidEntity a) { entityDelta = (0, 0) }
-    }
+setSize s a = a & (asteroidSize .~ s) . (asteroidEntity . entityDelta .~ (0, 0))
 
 randomAccelerate :: RandomGen g => Asteroid -> State g Asteroid
 randomAccelerate a = do
     speed <- nextRandom (50, 100)
     angle <- nextRandom (0, 2 * pi)
-    return $ Asteroid (accelerate speed angle 10000 (asteroidEntity a)) (asteroidSize a)
+    return $ Asteroid (accelerate speed angle 10000 (a^.asteroidEntity)) (a^.asteroidSize)
 
 getShotAsteroids :: Game -> [(Shot, Asteroid)]
 getShotAsteroids g = do
-    shots <- gameShots g
-    asteroids <- gameAsteroids g
+    shots <- g^.gameShots
+    asteroids <- g^.gameAsteroids
     filter collided . return $ (shots, asteroids)
     where
         collided (shot, asteroid) =
-            (entityPosition . shotEntity $ shot)
-            `dist` (entityPosition . asteroidEntity $ asteroid)
-            < (fromIntegral (asteroidSize asteroid) + 2)
+            (shot^.shotEntity.entityPosition)
+            `dist` (asteroid^.asteroidEntity.entityPosition)
+            < (fromIntegral (asteroid^.asteroidSize) + 2)
 
 dist :: Point -> Point -> Float
 dist (px1, py1) (px2, py2) = sqrt $ (px1 - px2) ^ 2 + (py1 - py2) ^ 2
@@ -282,20 +276,20 @@ updateAsteroids :: Seconds -> [Asteroid] -> [Asteroid]
 updateAsteroids time = fmap (moveAsteroid time)
 
 moveAsteroid :: Seconds -> Asteroid -> Asteroid
-moveAsteroid time a = a { asteroidEntity = move time (asteroidEntity a) }
+moveAsteroid time = over asteroidEntity (move time)
 
 updateShots :: Seconds -> Player -> [Shot] -> [Shot]
 updateShots time player
     = fmap (moveShot time) -- move shots
-    . filter ((< 1) . shotLife) -- kill old shots
-    . fmap (\s -> s { shotLife = shotLife s + time} ) -- age shots
-    . ifapp (playerShoot player) (newShot player:) -- new shot if shooting
+    . filter ((< 1) . (^.shotLife)) -- kill old shots
+    . fmap (shotLife +~ time) -- age shots
+    . ifapp (player^.playerShoot) (newShot player:) -- new shot if shooting
 
 newShot :: Player -> Shot
-newShot p = Shot (accelerate 400 (playerRotation p) 400 (playerEntity p)) 0
+newShot p = Shot (accelerate 400 (p^.playerRotation) 400 (p^.playerEntity)) 0
 
 moveShot :: Seconds -> Shot -> Shot
-moveShot time s = s { shotEntity = move time (shotEntity s) }
+moveShot time = over shotEntity (move time)
 
 updatePlayer :: Seconds -> Player -> Player
 updatePlayer time
@@ -305,14 +299,15 @@ updatePlayer time
     . rotatePlayer time -- apply rotation
 
 stopShoot :: Player -> Player
-stopShoot p = p { playerShoot = False }
+stopShoot = playerShoot .~ False
 
 movePlayer :: Seconds -> Player -> Player
-movePlayer time p = p { playerEntity = move time (playerEntity p) }
+movePlayer time = over playerEntity (move time)
 
 move :: Seconds -> Entity -> Entity
-move time e = e { entityPosition = wrapPosition $
-    entityPosition e `addVector` (mulSV time . entityDelta $ e) }
+move time e = e & entityPosition .~
+    (wrapPosition
+        $ (e^.entityPosition) `addVector` (mulSV time $ e^.entityDelta))
 
 wrapPosition :: Point -> Point
 wrapPosition (px, py) =
@@ -322,24 +317,24 @@ wrapPosition (px, py) =
 
 boostPlayer :: Seconds -> Player -> Player
 boostPlayer time p =
-    ifxy (playerBoost p)
-        (p { playerEntity = accelerate
+    ifxy (p^.playerBoost)
+        (p & playerEntity .~ accelerate
             (time * boost)
-            (playerRotation p)
+            (p^.playerRotation)
             300
-            (playerEntity p) })
+            (p^.playerEntity))
         p
 
 boost :: Float
 boost = 200
 
 accelerate :: Float -> Float -> Float -> Entity -> Entity
-accelerate magnitude radians maxmag e =
-    e { entityDelta = capVector maxmag
-        (entityDelta e `addVector` (mulSV magnitude
+accelerate magnitude radians maxmag = over entityDelta
+    $ capVector maxmag
+    . (`addVector` (mulSV magnitude
         . unitVectorAtAngle
         . normaliseAngle
-        $ radians)) }
+        $ radians))
 
 capVector :: Float -> Vector -> Vector
 capVector maxmag v =
@@ -352,7 +347,7 @@ addVector (x1, y1) (x2, y2) = (x1 + x2, y1 + y2)
 
 rotatePlayer :: Seconds -> Player -> Player
 rotatePlayer time p =
-    case playerTurning p of
-        Just TurningRight -> p { playerRotation = playerRotation p - (pi * time) }
-        Just TurningLeft -> p { playerRotation = playerRotation p + (pi * time) }
+    case p^.playerTurning of
+        Just TurningRight -> p & playerRotation -~ (pi * time)
+        Just TurningLeft -> p & playerRotation +~ (pi * time)
         Nothing -> p
